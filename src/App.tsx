@@ -1,11 +1,15 @@
+import { useState } from 'react';
 import { useApp } from './contexts/AppContext';
 import Header from './components/Header';
 import DropZone from './components/DropZone';
 import ProcessingQueue from './components/ProcessingQueue';
 import BeforeAfterSlider from './components/BeforeAfterSlider';
+import ManualEraser from './components/ManualEraser';
 import BackgroundEditor from './components/BackgroundEditor';
 import DownloadPanel from './components/DownloadPanel';
-import { AlertCircle, X } from 'lucide-react';
+import { AlertCircle, X, SlidersHorizontal, Eraser } from 'lucide-react';
+
+type EditMode = 'compare' | 'erase';
 
 export default function App() {
   const {
@@ -13,11 +17,14 @@ export default function App() {
     selectedImage,
     processImage,
     updateBackground,
+    updateEditedBg,
     downloadResult,
     clearAll,
     fileErrors,
     clearErrors,
   } = useApp();
+
+  const [editMode, setEditMode] = useState<EditMode>('compare');
 
   const hasImages = images.length > 0;
   const showControls = selectedImage && selectedImage.status === 'done';
@@ -63,10 +70,51 @@ export default function App() {
             {/* Left: main content */}
             <div className="space-y-4 sm:space-y-6">
               {showSlider ? (
-                <BeforeAfterSlider
-                  beforeUrl={selectedImage.originalUrl}
-                  afterUrl={selectedImage.compositeUrl ?? selectedImage.removedBgUrl!}
-                />
+                <div className="space-y-3">
+                  {/* Mode toggle */}
+                  <div className="flex gap-1 p-1 bg-gray-200 dark:bg-gray-800 rounded-lg w-fit">
+                    <button
+                      onClick={() => setEditMode('compare')}
+                      className={`flex items-center gap-1.5 px-3 py-1.5 text-sm font-medium rounded-md transition-colors ${
+                        editMode === 'compare'
+                          ? 'bg-white dark:bg-gray-700 text-gray-900 dark:text-white shadow-sm'
+                          : 'text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-300'
+                      }`}
+                    >
+                      <SlidersHorizontal className="w-3.5 h-3.5" />
+                      비교
+                    </button>
+                    <button
+                      onClick={() => setEditMode('erase')}
+                      className={`flex items-center gap-1.5 px-3 py-1.5 text-sm font-medium rounded-md transition-colors ${
+                        editMode === 'erase'
+                          ? 'bg-white dark:bg-gray-700 text-gray-900 dark:text-white shadow-sm'
+                          : 'text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-300'
+                      }`}
+                    >
+                      <Eraser className="w-3.5 h-3.5" />
+                      지우개
+                    </button>
+                  </div>
+
+                  {/* Content based on mode */}
+                  {editMode === 'compare' ? (
+                    <BeforeAfterSlider
+                      beforeUrl={selectedImage.originalUrl}
+                      afterUrl={selectedImage.compositeUrl ?? selectedImage.editedBgUrl ?? selectedImage.removedBgUrl!}
+                    />
+                  ) : (
+                    <ManualEraser
+                      imageUrl={selectedImage.editedBgUrl ?? selectedImage.removedBgUrl!}
+                      width={selectedImage.width}
+                      height={selectedImage.height}
+                      onSave={(url) => {
+                        updateEditedBg(selectedImage.id, url);
+                        setEditMode('compare');
+                      }}
+                    />
+                  )}
+                </div>
               ) : (
                 <DropZone
                   image={selectedImage}

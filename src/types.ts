@@ -15,6 +15,7 @@ export interface ProcessedImage {
   file: File;
   originalUrl: string;
   removedBgUrl: string | null;
+  editedBgUrl: string | null;
   compositeUrl: string | null;
   status: ImageStatus;
   progress: number;

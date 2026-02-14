@@ -27,6 +27,7 @@ interface AppContextType {
   processImage: (id: string) => Promise<void>;
   processAll: () => void;
   updateBackground: (id: string, bg: Background) => void;
+  updateEditedBg: (id: string, url: string | null) => void;
   downloadResult: (id: string, format: ImageFormat) => void;
   fileErrors: string[];
   clearErrors: () => void;
@@ -82,6 +83,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
         file,
         originalUrl: url,
         removedBgUrl: null,
+        editedBgUrl: null,
         compositeUrl: null,
         status: 'idle',
         progress: 0,
@@ -108,6 +110,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
       if (img) {
         URL.revokeObjectURL(img.originalUrl);
         if (img.removedBgUrl) URL.revokeObjectURL(img.removedBgUrl);
+        if (img.editedBgUrl) URL.revokeObjectURL(img.editedBgUrl);
         if (img.compositeUrl) URL.revokeObjectURL(img.compositeUrl);
       }
       return prev.filter((i) => i.id !== id);
@@ -120,6 +123,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
       for (const img of prev) {
         URL.revokeObjectURL(img.originalUrl);
         if (img.removedBgUrl) URL.revokeObjectURL(img.removedBgUrl);
+        if (img.editedBgUrl) URL.revokeObjectURL(img.editedBgUrl);
         if (img.compositeUrl) URL.revokeObjectURL(img.compositeUrl);
       }
       return [];
@@ -163,7 +167,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
     [remove, updateImageField],
   );
 
-  const processAll = useCallback(() => {
+  const processAll = useCallback(async () => {
     const idle = imagesRef.current.filter((img) => img.status === 'idle');
     const CONCURRENCY = 2;
     let index = 0;
@@ -176,7 +180,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
     }
 
     const workers = Array.from({ length: Math.min(CONCURRENCY, idle.length) }, () => next());
-    Promise.all(workers);
+    await Promise.all(workers);
   }, [processImage]);
 
   const updateBackground = useCallback(
@@ -186,10 +190,32 @@ export function AppProvider({ children }: { children: ReactNode }) {
       const img = imagesRef.current.find((i) => i.id === id);
       if (!img?.removedBgUrl) return;
 
+      const fgUrl = img.editedBgUrl ?? img.removedBgUrl;
       try {
-        const url = await composite(img.removedBgUrl, bg, img.width, img.height);
+        const url = await composite(fgUrl, bg, img.width, img.height);
         if (img.compositeUrl) URL.revokeObjectURL(img.compositeUrl);
         updateImageField(id, { compositeUrl: bg.type === 'transparent' ? null : url });
+      } catch {
+        // ignore composite errors
+      }
+    },
+    [composite, updateImageField],
+  );
+
+  const updateEditedBg = useCallback(
+    async (id: string, url: string | null) => {
+      const img = imagesRef.current.find((i) => i.id === id);
+      if (!img) return;
+      if (img.editedBgUrl) URL.revokeObjectURL(img.editedBgUrl);
+      updateImageField(id, { editedBgUrl: url });
+
+      // Re-composite with new edited foreground
+      const fgUrl = url ?? img.removedBgUrl;
+      if (!fgUrl) return;
+      try {
+        const compositeUrl = await composite(fgUrl, img.background, img.width, img.height);
+        if (img.compositeUrl) URL.revokeObjectURL(img.compositeUrl);
+        updateImageField(id, { compositeUrl: img.background.type === 'transparent' ? null : compositeUrl });
       } catch {
         // ignore composite errors
       }
@@ -202,7 +228,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
       const img = imagesRef.current.find((i) => i.id === id);
       if (!img) return;
 
-      const url = img.compositeUrl ?? img.removedBgUrl;
+      const url = img.compositeUrl ?? img.editedBgUrl ?? img.removedBgUrl;
       if (!url) return;
 
       const filename = generateFilename(img.file.name, format);
@@ -230,6 +256,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
         processImage,
         processAll,
         updateBackground,
+        updateEditedBg,
         downloadResult,
         fileErrors,
         clearErrors,
