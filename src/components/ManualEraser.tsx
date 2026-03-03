@@ -86,6 +86,34 @@ export default function ManualEraser({ imageUrl, width, height, onSave }: Manual
     };
   }, []);
 
+  // Get rendered content area within the canvas element when using object-fit: contain
+  const getContainedRect = useCallback(() => {
+    const canvas = canvasRef.current;
+    const container = containerRef.current;
+    if (!canvas || !container) return { offsetX: 0, offsetY: 0, renderWidth: 1, renderHeight: 1 };
+
+    const containerWidth = container.clientWidth;
+    const containerHeight = container.clientHeight;
+    const imageAspect = canvas.width / canvas.height;
+    const containerAspect = containerWidth / containerHeight;
+
+    let renderWidth: number, renderHeight: number, offsetX: number, offsetY: number;
+
+    if (imageAspect > containerAspect) {
+      renderWidth = containerWidth;
+      renderHeight = containerWidth / imageAspect;
+      offsetX = 0;
+      offsetY = (containerHeight - renderHeight) / 2;
+    } else {
+      renderHeight = containerHeight;
+      renderWidth = containerHeight * imageAspect;
+      offsetX = (containerWidth - renderWidth) / 2;
+      offsetY = 0;
+    }
+
+    return { offsetX, offsetY, renderWidth, renderHeight };
+  }, []);
+
   // Clamp pan so canvas can't go entirely off-screen
   const clampPan = useCallback((px: number, py: number, z: number) => {
     if (z <= 1) return { x: 0, y: 0 };
@@ -184,7 +212,7 @@ export default function ManualEraser({ imageUrl, width, height, onSave }: Manual
     setCanRedo(historyIndexRef.current < historyRef.current.length - 1);
   }, []);
 
-  // Convert screen coords → canvas data coords (accounts for zoom & pan)
+  // Convert screen coords → canvas data coords (accounts for zoom, pan & object-fit: contain)
   const getCanvasPos = useCallback((clientX: number, clientY: number) => {
     const canvas = canvasRef.current;
     const container = containerRef.current;
@@ -196,32 +224,33 @@ export default function ManualEraser({ imageUrl, width, height, onSave }: Manual
     // Reverse CSS transform: translate(pan) scale(zoom) origin 0 0
     const lx = (cx - panRef.current.x) / zoomRef.current;
     const ly = (cy - panRef.current.y) / zoomRef.current;
-    // Convert from CSS pixels to canvas data pixels
-    const scaleX = canvas.width / container.clientWidth;
-    const scaleY = canvas.height / container.clientHeight;
-    return { x: lx * scaleX, y: ly * scaleY };
-  }, []);
+    // Account for object-fit: contain offset, then convert to canvas data pixels
+    const { offsetX, offsetY, renderWidth, renderHeight } = getContainedRect();
+    const scaleX = canvas.width / renderWidth;
+    const scaleY = canvas.height / renderHeight;
+    return { x: (lx - offsetX) * scaleX, y: (ly - offsetY) * scaleY };
+  }, [getContainedRect]);
 
   const erase = useCallback((x: number, y: number) => {
     const canvas = canvasRef.current;
-    const container = containerRef.current;
-    if (!canvas || !container) return;
+    if (!canvas) return;
     const ctx = canvas.getContext('2d')!;
-    const baseScale = canvas.width / container.clientWidth;
+    const { renderWidth } = getContainedRect();
+    const baseScale = canvas.width / renderWidth;
     ctx.save();
     ctx.globalCompositeOperation = 'destination-out';
     ctx.beginPath();
     ctx.arc(x, y, (brushSizeRef.current / 2) * baseScale, 0, Math.PI * 2);
     ctx.fill();
     ctx.restore();
-  }, []);
+  }, [getContainedRect]);
 
   const eraseLine = useCallback((from: { x: number; y: number }, to: { x: number; y: number }) => {
     const canvas = canvasRef.current;
-    const container = containerRef.current;
-    if (!canvas || !container) return;
+    if (!canvas) return;
     const ctx = canvas.getContext('2d')!;
-    const baseScale = canvas.width / container.clientWidth;
+    const { renderWidth } = getContainedRect();
+    const baseScale = canvas.width / renderWidth;
     const radius = (brushSizeRef.current / 2) * baseScale;
     ctx.save();
     ctx.globalCompositeOperation = 'destination-out';
@@ -233,7 +262,7 @@ export default function ManualEraser({ imageUrl, width, height, onSave }: Manual
     ctx.lineTo(to.x, to.y);
     ctx.stroke();
     ctx.restore();
-  }, []);
+  }, [getContainedRect]);
 
   const moveCursor = useCallback((clientX: number, clientY: number) => {
     const container = containerRef.current;
@@ -384,7 +413,7 @@ export default function ManualEraser({ imageUrl, width, height, onSave }: Manual
           className="absolute inset-0 origin-top-left pointer-events-none"
           style={{ transform: `translate(${pan.x}px, ${pan.y}px) scale(${zoom})` }}
         >
-          <canvas ref={canvasRef} className="w-full h-full block" />
+          <canvas ref={canvasRef} className="w-full h-full block" style={{ objectFit: 'contain' }} />
         </div>
 
         {/* Custom brush cursor */}
